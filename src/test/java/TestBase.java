@@ -16,11 +16,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.Gson;
 import com.google.protobuf.InvalidProtocolBufferException;
-import com.iqiyi.mbd.cache.couchbase.BinaryCacheEntity;
-import com.iqiyi.mbd.cache.couchbase.CacheEntity;
-import com.iqiyi.mbd.cache.couchbase.CouchBaseCache;
-import com.iqiyi.mbd.cache.couchbase.CouchBaseException;
-import com.iqiyi.mbd.cache.couchbase.StringCacheEntity;
+import dayu.utils.cacheit.BinaryCacheEntity;
+import dayu.utils.cacheit.CacheEntity;
+import dayu.utils.cacheit.CouchBaseCache;
+import dayu.utils.cacheit.CouchBaseException;
+import dayu.utils.cacheit.StringCacheEntity;
 
 import lombok.Data;
 

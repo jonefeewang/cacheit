@@ -1,4 +1,4 @@
-package com.iqiyi.mbd.cache.couchbase;
+package dayu.utils.cacheit;
 
 public interface BinaryCacheEntity<T> extends CacheEntity<T> {
     byte[] encode();

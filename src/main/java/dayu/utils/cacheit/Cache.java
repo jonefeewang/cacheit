@@ -1,4 +1,4 @@
-package com.iqiyi.mbd.cache.couchbase;
+package dayu.utils.cacheit;
 
 import java.util.List;
 import java.util.Map;

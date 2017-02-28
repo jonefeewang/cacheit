@@ -1,4 +1,4 @@
-package com.iqiyi.mbd.cache.couchbase;
+package dayu.utils.cacheit;
 
 public interface CacheEntity<T> {
     T id();

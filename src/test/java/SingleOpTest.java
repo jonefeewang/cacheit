@@ -11,7 +11,7 @@ import org.junit.runners.Parameterized.Parameter;
 import org.junit.runners.Parameterized.Parameters;
 
 import com.google.common.collect.ImmutableSet;
-import com.iqiyi.mbd.cache.couchbase.CacheEntity;
+import dayu.utils.cacheit.CacheEntity;
 
 @RunWith(Parameterized.class)
 public class SingleOpTest extends TestBase {

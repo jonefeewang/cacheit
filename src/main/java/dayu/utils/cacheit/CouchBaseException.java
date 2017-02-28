@@ -1,4 +1,4 @@
-package com.iqiyi.mbd.cache.couchbase;
+package dayu.utils.cacheit;
 
 public class CouchBaseException extends RuntimeException {
     private static final long serialVersionUID = 2061450736047138676L;

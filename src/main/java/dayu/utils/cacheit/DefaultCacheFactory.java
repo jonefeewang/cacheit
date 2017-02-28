@@ -1,4 +1,4 @@
-package com.iqiyi.mbd.cache.couchbase;
+package dayu.utils.cacheit;
 
 import java.net.InetAddress;
 import java.util.List;
