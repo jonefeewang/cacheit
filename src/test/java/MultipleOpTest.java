@@ -27,8 +27,11 @@ public class MultipleOpTest extends TestBase {
     public static List<CacheEntity<String>> entityList;
 
     @Parameters
-    public static Collection<List<CacheEntity<String>>> entities() {
-        return ImmutableList.of(generalHeroList, generalAddressBookList);
+    public static Collection<List<String>> entities() {
+        List<String> a = generalHeroList.stream().map(entity -> entity.id()).collect(Collectors.toList());
+        List<String> b = generalAddressBookList.stream().map(entity -> entity.id()).collect(Collectors.toList());
+
+        return ImmutableList.of(a,b);
     }
 
     @Before

@@ -58,10 +58,15 @@ public class TestBase {
 //                                        InetAddress.getByName("10.110.12.86"),
 //                                        InetAddress.getByName("10.110.12.87")
 //            );
-            cluster2_ip = Arrays.asList(InetAddress.getByName("10.221.49.74"),
-                                        InetAddress.getByName("10.221.49.73"),
-                                        InetAddress.getByName("10.221.49.72"),
-                                        InetAddress.getByName("10.221.49.75")
+//            cluster2_ip = Arrays.asList(InetAddress.getByName("10.221.49.74"),
+//                                        InetAddress.getByName("10.221.49.73"),
+//                                        InetAddress.getByName("10.221.49.72"),
+//                                        InetAddress.getByName("10.221.49.75")
+//            );
+            cluster2_ip = Arrays.asList(InetAddress.getByName("10.153.90.101"),
+                                        InetAddress.getByName("10.153.90.102"),
+                                        InetAddress.getByName("10.153.90.103"),
+                                        InetAddress.getByName("10.153.90.104")
             );
             cluster1_buckets = Arrays.asList("qx_comments");
             cluster2_buckets = Arrays.asList("feed-entity");
@@ -104,7 +109,7 @@ public class TestBase {
 
         @Override
         public String db() {
-            return "cluster2_feed-entity";
+            return "cluster1_qx_comments";
         }
 
         @Override

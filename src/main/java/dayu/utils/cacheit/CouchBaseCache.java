@@ -21,9 +21,11 @@ import com.couchbase.client.java.document.BinaryDocument;
 import com.couchbase.client.java.document.RawJsonDocument;
 import com.couchbase.client.java.env.CouchbaseEnvironment;
 import com.couchbase.client.java.env.DefaultCouchbaseEnvironment;
+import com.google.common.util.concurrent.ListenableFuture;
 
 import lombok.extern.slf4j.Slf4j;
 import rx.Observable;
+import rx.observable.ListenableFutureObservable;
 
 @Slf4j
 public class CouchBaseCache implements Cache {
@@ -45,29 +47,29 @@ public class CouchBaseCache implements Cache {
         });
     }
 
-    @SuppressWarnings({ "unchecked", "rawtypes" })
+    @SuppressWarnings({ "unchecked" })
     @Override
-    public <E extends CacheEntity> Optional<E> get(E entity) {
+    public <E extends CacheEntity<T>, T> Optional<E> get(E entity) {
         requireNonNull(entity, "entity");
         if (entity instanceof StringCacheEntity) {
-            StringCacheEntity stringCacheEntity = (StringCacheEntity) entity;
+            StringCacheEntity<T> stringCacheEntity = (StringCacheEntity<T>) entity;
             return bucketMap.get(entity.db()).async().getAndTouch(
                     entity.toCacheKey(String.valueOf(entity.id())),
-                    entity.expiry())
+                    entity.expiry(), RawJsonDocument.class)
                             .map(
                                     jsonDocument -> Optional
-                                            .of(stringCacheEntity.decode(jsonDocument.content().toString())))
+                                            .of(stringCacheEntity.decode(jsonDocument.content())))
                             .toBlocking()
                             .singleOrDefault(Optional.empty()).map(temp -> (E) temp
                     );
         } else if (entity instanceof BinaryCacheEntity) {
-            BinaryCacheEntity binaryCacheEntity = (BinaryCacheEntity) entity;
+            BinaryCacheEntity<T> binaryCacheEntity = (BinaryCacheEntity<T>) entity;
             return bucketMap.get(entity.db()).async().getAndTouch(
                     entity.toCacheKey(String.valueOf(entity.id())),
                     entity.expiry(),
                     BinaryDocument.class).map(
                     binaryDoc -> {
-                        Optional<BinaryCacheEntity> binRet = Optional.of(
+                        Optional<BinaryCacheEntity<T>> binRet = Optional.of(
                                 binaryCacheEntity.decode(toBytesArray(binaryDoc.content())));
                         ReferenceCountUtil.release(binaryDoc.content());
                         return binRet;
@@ -76,6 +78,32 @@ public class CouchBaseCache implements Cache {
                             .toBlocking()
                             .singleOrDefault(Optional.empty()).map(temp -> (E) temp
                     );
+        } else { throw new CouchBaseException("unsupported subtype:" + entity.getClass()); }
+    }
+
+    @Override
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    public <E extends CacheEntity> ListenableFuture<E> getAsync(E entity) {
+        requireNonNull(entity, "entity");
+        if (entity instanceof StringCacheEntity) {
+            StringCacheEntity stringCacheEntity = (StringCacheEntity) entity;
+            return ListenableFutureObservable.to(bucketMap.get(entity.db()).async().getAndTouch(
+                    entity.toCacheKey(String.valueOf(entity.id())),
+                    entity.expiry(), RawJsonDocument.class).map(jsonDocument -> (E) stringCacheEntity
+                    .decode(jsonDocument.content())));
+        } else if (entity instanceof BinaryCacheEntity) {
+            BinaryCacheEntity binaryCacheEntity = (BinaryCacheEntity) entity;
+            return ListenableFutureObservable.to(bucketMap.get(entity.db()).async().getAndTouch(
+                    entity.toCacheKey(String.valueOf(entity.id())),
+                    entity.expiry(),
+                    BinaryDocument.class).map(
+                    binaryDoc -> {
+                        BinaryCacheEntity binRet =
+                                binaryCacheEntity.decode(toBytesArray(binaryDoc.content()));
+                        ReferenceCountUtil.release(binaryDoc.content());
+                        return (E) binRet;
+                    }
+            ));
         } else { throw new CouchBaseException("unsupported subtype:" + entity.getClass()); }
     }
 
@@ -106,13 +134,14 @@ public class CouchBaseCache implements Cache {
             return Observable
                     .from(entityIds).map(entityId -> entity.toCacheKey(String.valueOf(entityId)))
                     .flatMap(id -> bucketMap.get(entity.db()).async()
-                                            .getAndTouch(String.valueOf(id), entity.expiry())
+                                            .getAndTouch(String.valueOf(id), entity.expiry(),
+                                                         RawJsonDocument.class)
                                             .doOnError(throwable -> log.warn(throwable.getMessage()))
                                             .onErrorResumeNext(Observable.empty())
                     )
                     .map(jsonDocument -> {
                         StringCacheEntity temp = (StringCacheEntity) entity;
-                        StringCacheEntity decoded = temp.decode(jsonDocument.content().toString());
+                        StringCacheEntity decoded = temp.decode(jsonDocument.content());
                         return (E) decoded;
                     })
                     .toMap(CacheEntity::id)
@@ -122,13 +151,13 @@ public class CouchBaseCache implements Cache {
     }
 
     @Override
-    @SuppressWarnings("rawtypes")
-    public boolean load(CacheEntity entity) {
+    @SuppressWarnings({ "unchecked" })
+    public <E extends CacheEntity<T>, T> boolean load(E entity) {
         requireNonNull(entity, "entity");
         if (entity instanceof StringCacheEntity) {
             RawJsonDocument result = bucketMap.get(entity.db()).async().upsert(
                     RawJsonDocument.create(entity.toCacheKey(String.valueOf(entity.id())), entity.expiry(),
-                                           ((StringCacheEntity) entity)
+                                           ((StringCacheEntity<T>) entity)
                                                    .encode())).toBlocking().singleOrDefault(null);
             if (result == null) { return false; }
             return true;
@@ -136,7 +165,7 @@ public class CouchBaseCache implements Cache {
             BinaryDocument result = bucketMap.get(entity.db()).async().upsert(
                     BinaryDocument.create(entity.toCacheKey(String.valueOf(entity.id())), entity.expiry(),
                                           Unpooled.wrappedBuffer(
-                                                  ((BinaryCacheEntity) entity)
+                                                  ((BinaryCacheEntity<T>) entity)
                                                           .encode()))).toBlocking().singleOrDefault(null);
             if (result == null) { return false; }
             return true;
@@ -145,7 +174,7 @@ public class CouchBaseCache implements Cache {
         }
     }
 
-    @SuppressWarnings("rawtypes")
+    @SuppressWarnings({ "unchecked" })
     @Override
     public <E extends CacheEntity<T>, T> List<T> multipleLoad(List<E> entityList, E defaultEntity) {
         requireNonNull(defaultEntity, "defaultEntity");
@@ -155,7 +184,7 @@ public class CouchBaseCache implements Cache {
                     entity -> bucketMap.get(defaultEntity.db()).async()
                                        .upsert(RawJsonDocument
                                                        .create(entity.toCacheKey(String.valueOf(entity.id())),
-                                                               ((StringCacheEntity) entity)
+                                                               ((StringCacheEntity<T>) entity)
                                                                        .encode(),
                                                                defaultEntity
                                                                        .expiry()))
@@ -171,7 +200,7 @@ public class CouchBaseCache implements Cache {
                                                        .create(entity.toCacheKey(String.valueOf(entity.id())),
                                                                entity.expiry(),
                                                                Unpooled.wrappedBuffer(
-                                                                       ((BinaryCacheEntity) entity)
+                                                                       ((BinaryCacheEntity<T>) entity)
                                                                                .encode()),
                                                                defaultEntity
                                                                        .expiry()))
