@@ -7,5 +7,5 @@ import java.util.Map;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 
 public interface CacheFactory {
-     Cache createCouchBaseCache(Map<String, ImmutablePair<List<InetAddress>, List<String>>> clusterBucketMap);
+     Cache createCouchBaseCache(Map<String, ImmutablePair<List<InetAddress>, List<String>>> clusterBucketMap,Map<String,Integer> timeoutConfig);
 }

@@ -23,6 +23,13 @@
 
   </properties>
 
+  <distributionManagement>
+    <repository>
+      <id>maven.qiyi.virtual</id>
+      <url>http://maven.qiyi.virtual/a/iqiyi-internal-repo</url>
+    </repository>
+  </distributionManagement>
+
 
   <dependencies>
     <dependency>

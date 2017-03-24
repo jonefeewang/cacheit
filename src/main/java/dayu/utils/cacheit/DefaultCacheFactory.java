@@ -9,7 +9,7 @@ import org.apache.commons.lang3.tuple.ImmutablePair;
 public class DefaultCacheFactory implements CacheFactory {
     @Override
     public Cache createCouchBaseCache(
-            Map<String, ImmutablePair<List<InetAddress>, List<String>>> clusterBucketMap) {
-        return new CouchBaseCache(clusterBucketMap);
+            Map<String, ImmutablePair<List<InetAddress>, List<String>>> clusterBucketMap,Map<String,Integer> timeoutConfig) {
+        return new CouchBaseCache(clusterBucketMap,timeoutConfig);
     }
 }

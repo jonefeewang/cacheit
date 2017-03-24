@@ -16,8 +16,8 @@ import org.junit.runners.Parameterized.Parameter;
 import org.junit.runners.Parameterized.Parameters;
 
 import com.google.common.collect.ImmutableList;
-import dayu.utils.cacheit.CacheEntity;
 
+import dayu.utils.cacheit.CacheEntity;
 import rx.Observable;
 
 @RunWith(Parameterized.class)
@@ -27,11 +27,8 @@ public class MultipleOpTest extends TestBase {
     public static List<CacheEntity<String>> entityList;
 
     @Parameters
-    public static Collection<List<String>> entities() {
-        List<String> a = generalHeroList.stream().map(entity -> entity.id()).collect(Collectors.toList());
-        List<String> b = generalAddressBookList.stream().map(entity -> entity.id()).collect(Collectors.toList());
-
-        return ImmutableList.of(a,b);
+    public static Collection<List<CacheEntity<String>>> entities() {
+        return ImmutableList.of(generalHeroList, generalAddressBookList);
     }
 
     @Before
@@ -60,8 +57,8 @@ public class MultipleOpTest extends TestBase {
     public void multipleGet() {
         loadSample();
         Map<String, CacheEntity<String>> expected = Observable.from(entityList).toMap(CacheEntity::id)
-                                                      .toBlocking()
-                                                      .single();
+                                                              .toBlocking()
+                                                              .single();
         Map<String, CacheEntity<String>> result = couchBaseCache.multipleGet(
                 entityList.stream().map(CacheEntity::id).collect(Collectors.toList()),
                 entityList.get(0));

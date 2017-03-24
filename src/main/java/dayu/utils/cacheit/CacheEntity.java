@@ -13,7 +13,7 @@ public interface CacheEntity<T> {
         return keyPrefix() + "_" + id;
     }
 
-    default T toRealKey(String cacheKey) {
+    default T toId(String cacheKey) {
         return (T) cacheKey.substring((keyPrefix() + "_").length());
     }
 }

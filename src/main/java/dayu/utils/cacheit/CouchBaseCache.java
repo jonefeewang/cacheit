@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.tuple.ImmutablePair;
@@ -21,6 +22,7 @@ import com.couchbase.client.java.document.BinaryDocument;
 import com.couchbase.client.java.document.RawJsonDocument;
 import com.couchbase.client.java.env.CouchbaseEnvironment;
 import com.couchbase.client.java.env.DefaultCouchbaseEnvironment;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import lombok.extern.slf4j.Slf4j;
@@ -32,11 +34,14 @@ public class CouchBaseCache implements Cache {
     private final CouchbaseEnvironment environment;
     private final HashMap<String, CouchbaseCluster> clusterMap;
     private final Map<String, Bucket> bucketMap;
+    private final Map<String, Integer> timeoutConfig;
 
-    public CouchBaseCache(Map<String, ImmutablePair<List<InetAddress>, List<String>>> clusterBucketMap) {
+    public CouchBaseCache(Map<String, ImmutablePair<List<InetAddress>, List<String>>> clusterBucketMap,
+                          Map<String, Integer> timeoutConfig) {
         requireNonNull(clusterBucketMap, "clusterBucketMap");
         environment = DefaultCouchbaseEnvironment.create();
         clusterMap = new HashMap<>(clusterBucketMap.size());
+        this.timeoutConfig = timeoutConfig;
         bucketMap = new HashMap<>();
         clusterBucketMap.forEach((k, v) -> {
             CouchbaseCluster cluster = CouchbaseCluster.create(environment, v.getLeft().stream()
@@ -55,10 +60,12 @@ public class CouchBaseCache implements Cache {
             StringCacheEntity<T> stringCacheEntity = (StringCacheEntity<T>) entity;
             return bucketMap.get(entity.db()).async().getAndTouch(
                     entity.toCacheKey(String.valueOf(entity.id())),
-                    entity.expiry(), RawJsonDocument.class)
+                    entity.expiry(), RawJsonDocument.class).timeout(timeoutConfig.get(entity.db()),
+                                                                    TimeUnit.MILLISECONDS)
                             .map(
                                     jsonDocument -> Optional
-                                            .of(stringCacheEntity.decode(jsonDocument.content())))
+                                            .of(stringCacheEntity
+                                                        .decode(jsonDocument.id(), jsonDocument.content())))
                             .toBlocking()
                             .singleOrDefault(Optional.empty()).map(temp -> (E) temp
                     );
@@ -67,10 +74,10 @@ public class CouchBaseCache implements Cache {
             return bucketMap.get(entity.db()).async().getAndTouch(
                     entity.toCacheKey(String.valueOf(entity.id())),
                     entity.expiry(),
-                    BinaryDocument.class).map(
+                    BinaryDocument.class).timeout(timeoutConfig.get(entity.db()), TimeUnit.MILLISECONDS).map(
                     binaryDoc -> {
                         Optional<BinaryCacheEntity<T>> binRet = Optional.of(
-                                binaryCacheEntity.decode(toBytesArray(binaryDoc.content())));
+                                binaryCacheEntity.decode(binaryDoc.id(), toBytesArray(binaryDoc.content())));
                         ReferenceCountUtil.release(binaryDoc.content());
                         return binRet;
                     }
@@ -81,25 +88,28 @@ public class CouchBaseCache implements Cache {
         } else { throw new CouchBaseException("unsupported subtype:" + entity.getClass()); }
     }
 
+    @SuppressWarnings({ "unchecked" })
     @Override
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    public <E extends CacheEntity> ListenableFuture<E> getAsync(E entity) {
+    public <E extends CacheEntity<T>, T> ListenableFuture<E> getAsync(E entity) {
         requireNonNull(entity, "entity");
         if (entity instanceof StringCacheEntity) {
-            StringCacheEntity stringCacheEntity = (StringCacheEntity) entity;
+            StringCacheEntity<T> stringCacheEntity = (StringCacheEntity<T>) entity;
             return ListenableFutureObservable.to(bucketMap.get(entity.db()).async().getAndTouch(
                     entity.toCacheKey(String.valueOf(entity.id())),
-                    entity.expiry(), RawJsonDocument.class).map(jsonDocument -> (E) stringCacheEntity
-                    .decode(jsonDocument.content())));
+                    entity.expiry(), RawJsonDocument.class).timeout(timeoutConfig.get(entity.db()),
+                                                                    TimeUnit.MILLISECONDS)
+                                                          .map(jsonDocument -> (E) stringCacheEntity
+                                                                  .decode(jsonDocument.id(),
+                                                                          jsonDocument.content())));
         } else if (entity instanceof BinaryCacheEntity) {
-            BinaryCacheEntity binaryCacheEntity = (BinaryCacheEntity) entity;
+            BinaryCacheEntity<T> binaryCacheEntity = (BinaryCacheEntity<T>) entity;
             return ListenableFutureObservable.to(bucketMap.get(entity.db()).async().getAndTouch(
                     entity.toCacheKey(String.valueOf(entity.id())),
                     entity.expiry(),
-                    BinaryDocument.class).map(
+                    BinaryDocument.class).timeout(timeoutConfig.get(entity.db()), TimeUnit.MILLISECONDS).map(
                     binaryDoc -> {
-                        BinaryCacheEntity binRet =
-                                binaryCacheEntity.decode(toBytesArray(binaryDoc.content()));
+                        BinaryCacheEntity<T> binRet =
+                                binaryCacheEntity.decode(binaryDoc.id(), toBytesArray(binaryDoc.content()));
                         ReferenceCountUtil.release(binaryDoc.content());
                         return (E) binRet;
                     }
@@ -107,7 +117,7 @@ public class CouchBaseCache implements Cache {
         } else { throw new CouchBaseException("unsupported subtype:" + entity.getClass()); }
     }
 
-    @SuppressWarnings({ "unchecked", "rawtypes" })
+    @SuppressWarnings({ "unchecked" })
     @Override
     public <E extends CacheEntity<T>, T> Map<T, E> multipleGet(List<T> entityIds, E entity) {
         requireNonNull(entityIds, "entityIds");
@@ -117,13 +127,15 @@ public class CouchBaseCache implements Cache {
                     .from(entityIds).map(entityId -> entity.toCacheKey(String.valueOf(entityId)))
                     .flatMap(id -> bucketMap.get(entity.db()).async()
                                             .getAndTouch(String.valueOf(id), entity.expiry(),
-                                                         BinaryDocument.class)
+                                                         BinaryDocument.class).timeout(
+                                    timeoutConfig.get(entity.db()), TimeUnit.MILLISECONDS)
                                             .doOnError(throwable -> log.warn(throwable.getMessage()))
                                             .onErrorResumeNext(Observable.empty())
                     )
                     .map(binaryDocument -> {
-                        BinaryCacheEntity temp = (BinaryCacheEntity) entity;
-                        BinaryCacheEntity decoded = temp.decode(toBytesArray(binaryDocument.content()));
+                        BinaryCacheEntity<T> temp = (BinaryCacheEntity<T>) entity;
+                        BinaryCacheEntity<T> decoded = temp.decode(binaryDocument.id(),
+                                                                   toBytesArray(binaryDocument.content()));
                         ReferenceCountUtil.release(binaryDocument.content());
                         return (E) decoded;
                     })
@@ -135,13 +147,14 @@ public class CouchBaseCache implements Cache {
                     .from(entityIds).map(entityId -> entity.toCacheKey(String.valueOf(entityId)))
                     .flatMap(id -> bucketMap.get(entity.db()).async()
                                             .getAndTouch(String.valueOf(id), entity.expiry(),
-                                                         RawJsonDocument.class)
+                                                         RawJsonDocument.class).timeout(
+                                    timeoutConfig.get(entity.db()), TimeUnit.MILLISECONDS)
                                             .doOnError(throwable -> log.warn(throwable.getMessage()))
                                             .onErrorResumeNext(Observable.empty())
                     )
                     .map(jsonDocument -> {
-                        StringCacheEntity temp = (StringCacheEntity) entity;
-                        StringCacheEntity decoded = temp.decode(jsonDocument.content());
+                        StringCacheEntity<T> temp = (StringCacheEntity<T>) entity;
+                        StringCacheEntity<T> decoded = temp.decode(jsonDocument.id(), jsonDocument.content());
                         return (E) decoded;
                     })
                     .toMap(CacheEntity::id)
@@ -158,7 +171,9 @@ public class CouchBaseCache implements Cache {
             RawJsonDocument result = bucketMap.get(entity.db()).async().upsert(
                     RawJsonDocument.create(entity.toCacheKey(String.valueOf(entity.id())), entity.expiry(),
                                            ((StringCacheEntity<T>) entity)
-                                                   .encode())).toBlocking().singleOrDefault(null);
+                                                   .encode())).timeout(timeoutConfig.get(entity.db()),
+                                                                       TimeUnit.MILLISECONDS).toBlocking()
+                                              .singleOrDefault(null);
             if (result == null) { return false; }
             return true;
         } else if (entity instanceof BinaryCacheEntity) {
@@ -166,9 +181,46 @@ public class CouchBaseCache implements Cache {
                     BinaryDocument.create(entity.toCacheKey(String.valueOf(entity.id())), entity.expiry(),
                                           Unpooled.wrappedBuffer(
                                                   ((BinaryCacheEntity<T>) entity)
-                                                          .encode()))).toBlocking().singleOrDefault(null);
+                                                          .encode()))).timeout(timeoutConfig.get(entity.db()),
+                                                                               TimeUnit.MILLISECONDS)
+                                             .toBlocking().singleOrDefault(null);
             if (result == null) { return false; }
             return true;
+        } else {
+            throw new CouchBaseException("unsupported subtype:" + entity.getClass());
+        }
+    }
+
+    @Override
+    @SuppressWarnings({ "unchecked" })
+    public <E extends CacheEntity<T>, T> ListenableFuture<Boolean> loadAsync(E entity) {
+        requireNonNull(entity, "entity");
+        if (entity instanceof StringCacheEntity) {
+            return Futures.transform(ListenableFutureObservable.to(bucketMap.get(entity.db()).async()
+                                                                            .upsert(RawJsonDocument
+                                                                                            .create(entity.toCacheKey(
+                                                                                                    String.valueOf(
+                                                                                                            entity.id())),
+                                                                                                    entity.expiry(),
+                                                                                                    ((StringCacheEntity<T>) entity)
+                                                                                                            .encode()))
+                                                                            .timeout(timeoutConfig
+                                                                                             .get(entity.db()),
+                                                                                     TimeUnit.MILLISECONDS)),
+                                     input -> true);
+        } else if (entity instanceof BinaryCacheEntity) {
+            return Futures.transform(ListenableFutureObservable
+                                             .to(bucketMap.get(entity.db()).async().upsert(
+                                                     BinaryDocument
+                                                             .create(entity.toCacheKey(
+                                                                     String.valueOf(entity.id())),
+                                                                     entity.expiry(),
+                                                                     Unpooled.wrappedBuffer(
+                                                                             ((BinaryCacheEntity<T>) entity)
+                                                                                     .encode())))
+                                                          .timeout(timeoutConfig.get(entity.db()),
+                                                                   TimeUnit.MILLISECONDS)),
+                                     input -> true);
         } else {
             throw new CouchBaseException("unsupported subtype:" + entity.getClass());
         }
@@ -180,18 +232,19 @@ public class CouchBaseCache implements Cache {
         requireNonNull(defaultEntity, "defaultEntity");
         requireNonNull(entityList, "entityList");
         if (defaultEntity instanceof StringCacheEntity) {
-            return Observable.from(entityList).flatMap(
+            return Observable.timer(300, TimeUnit.MILLISECONDS).from(entityList).flatMap(
                     entity -> bucketMap.get(defaultEntity.db()).async()
                                        .upsert(RawJsonDocument
                                                        .create(entity.toCacheKey(String.valueOf(entity.id())),
                                                                ((StringCacheEntity<T>) entity)
                                                                        .encode(),
                                                                defaultEntity
-                                                                       .expiry()))
+                                                                       .expiry())).timeout(
+                                    timeoutConfig.get(defaultEntity.db()), TimeUnit.MILLISECONDS)
                                        .doOnError(throwable -> log.warn(throwable.getMessage()))
                                        .onErrorResumeNext(Observable.empty())
             )
-                             .map(json -> defaultEntity.toRealKey(json.id())).toList().toBlocking()
+                             .map(json -> defaultEntity.toId(json.id())).toList().toBlocking()
                              .singleOrDefault(Collections.emptyList());
         } else if (defaultEntity instanceof BinaryCacheEntity) {
             return Observable.from(entityList).flatMap(
@@ -203,11 +256,12 @@ public class CouchBaseCache implements Cache {
                                                                        ((BinaryCacheEntity<T>) entity)
                                                                                .encode()),
                                                                defaultEntity
-                                                                       .expiry()))
+                                                                       .expiry())).timeout(
+                                    timeoutConfig.get(defaultEntity.db()), TimeUnit.MILLISECONDS)
                                        .doOnError(throwable -> log.warn(throwable.getMessage()))
                                        .onErrorResumeNext(Observable.empty())
             )
-                             .map(json -> defaultEntity.toRealKey(json.id())).toList().toBlocking()
+                             .map(json -> defaultEntity.toId(json.id())).toList().toBlocking()
                              .singleOrDefault(Collections.emptyList());
         }
         throw new CouchBaseException("unsupported subtype:" + entityList.getClass());
@@ -217,10 +271,21 @@ public class CouchBaseCache implements Cache {
     public <E extends CacheEntity<T>, T> Optional<T> delete(E entity) {
         requireNonNull(entity, "entity");
         return bucketMap.get(entity.db()).async().remove(entity.toCacheKey(String.valueOf(entity.id())))
+                        .timeout(timeoutConfig.get(entity.db()), TimeUnit.MILLISECONDS)
                         .map(
                                 jsonDocument -> Optional
-                                        .of(entity.toRealKey(jsonDocument.id()))).toBlocking()
+                                        .of(entity.toId(jsonDocument.id()))).toBlocking()
                         .singleOrDefault(Optional.empty());
+    }
+
+    @Override
+    public <E extends CacheEntity<T>, T> ListenableFuture<T> deleteAsync(E entity) {
+        return ListenableFutureObservable.to(bucketMap.get(entity.db()).async()
+                                                      .remove(entity.toCacheKey(String.valueOf(entity.id())))
+                                                      .timeout(timeoutConfig.get(entity.db()),
+                                                               TimeUnit.MILLISECONDS)
+                                                      .map(jsonDocument -> entity
+                                                              .toId(jsonDocument.id())));
     }
 
     @Override
@@ -230,12 +295,14 @@ public class CouchBaseCache implements Cache {
         return Observable.from(idList).flatMap(id -> bucketMap.get(defaultEntity.db()).async()
                                                               .remove(defaultEntity
                                                                               .toCacheKey(String.valueOf(id)))
+                                                              .timeout(timeoutConfig.get(defaultEntity.db()),
+                                                                       TimeUnit.MILLISECONDS)
                                                               .doOnError(throwable -> log
                                                                       .warn(throwable.getMessage()))
                                                               .onErrorResumeNext(Observable.empty())
         )
                          .map(
-                                 jsonDocument -> defaultEntity.toRealKey(jsonDocument.id())).toList()
+                                 jsonDocument -> defaultEntity.toId(jsonDocument.id())).toList()
                          .toBlocking()
                          .singleOrDefault(
                                  Collections.emptyList());

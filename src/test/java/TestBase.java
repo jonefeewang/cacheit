@@ -3,6 +3,7 @@ import static org.junit.Assert.fail;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -45,24 +46,6 @@ public class TestBase {
         List<String> cluster1_buckets, cluster2_buckets;
         Map<String, ImmutablePair<List<InetAddress>, List<String>>> clusterInfo;
         try {
-            cluster1_ip = Arrays.asList(
-                    InetAddress.getByName("quickresponse21-couchbase-online001-jylt.qiyi.virtual"),
-                    InetAddress.getByName("quickresponse21-couchbase-online002-jylt.qiyi.virtual"),
-                    InetAddress.getByName("quickresponse21-couchbase-online003-jylt.qiyi.virtual"),
-                    InetAddress.getByName("quickresponse21-couchbase-online004-jylt.qiyi.virtual"),
-                    InetAddress.getByName("quickresponse21-couchbase-online005-jylt.qiyi.virtual"),
-                    InetAddress.getByName("quickresponse21-couchbase-online006-jylt.qiyi.virtual")
-            );
-//            cluster2_ip = Arrays.asList(InetAddress.getByName("10.110.12.84"),
-//                                        InetAddress.getByName("10.110.12.85"),
-//                                        InetAddress.getByName("10.110.12.86"),
-//                                        InetAddress.getByName("10.110.12.87")
-//            );
-//            cluster2_ip = Arrays.asList(InetAddress.getByName("10.221.49.74"),
-//                                        InetAddress.getByName("10.221.49.73"),
-//                                        InetAddress.getByName("10.221.49.72"),
-//                                        InetAddress.getByName("10.221.49.75")
-//            );
             cluster2_ip = Arrays.asList(InetAddress.getByName("10.153.90.101"),
                                         InetAddress.getByName("10.153.90.102"),
                                         InetAddress.getByName("10.153.90.103"),
@@ -71,10 +54,13 @@ public class TestBase {
             cluster1_buckets = Arrays.asList("qx_comments");
             cluster2_buckets = Arrays.asList("feed-entity");
             clusterInfo = ImmutableMap.<String, ImmutablePair<List<InetAddress>, List<String>>>builder()
-                    .put("cluster1", ImmutablePair.of(cluster1_ip, cluster1_buckets))
+//                    .put("cluster1", ImmutablePair.of(cluster1_ip, cluster1_buckets))
                     .put("cluster2", ImmutablePair.of(cluster2_ip, cluster2_buckets))
                     .build();
-            couchBaseCache = new CouchBaseCache(clusterInfo);
+            Map<String, Integer> timeoutConfig = new HashMap<>();
+            timeoutConfig.put("cluster1_qx_comments", 300);
+            timeoutConfig.put("cluster2_feed-entity", 300);
+            couchBaseCache = new CouchBaseCache(clusterInfo,timeoutConfig);
         } catch (UnknownHostException e) {
             fail();
         }
@@ -121,10 +107,10 @@ public class TestBase {
         }
 
         @Override
-        public PersonBean decode(byte[] content) {
+        public PersonBean decode(String cacheKey,byte[] content) {
             try {
                 PersonProto person = AddressBookProtos.PersonProto.parseFrom(content);
-                return new PersonBean(person.getName(), toRealKey(person.getId()), person.getEmail());
+                return new PersonBean(person.getName(), toId(person.getId()), person.getEmail());
             } catch (InvalidProtocolBufferException e) {
                 throw new CouchBaseException("unable to decode object form bytes");
             }
@@ -162,7 +148,7 @@ public class TestBase {
         }
 
         @Override
-        public StringCacheEntity decode(String content) {
+        public StringCacheEntity decode(String cacheKey,String content) {
             return TestBase.gson.fromJson(content, AddressBookBean.class);
         }
     }
